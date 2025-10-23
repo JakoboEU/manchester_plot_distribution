@@ -139,6 +139,12 @@ for (i in 1:nrow(sbi_plot_combos)) {
 
 sbi_richness
 ```
+```{r}
+library(ggplot2)
+plant_ylim = ylim(0, 60)
+insect_ylim = ylim(0, 10)
+bird_ylim = ylim(0, 20)
+```
 
 ```{r}
 ggplot(sbi_richness, aes(x = site_name, y = bird_richness)) + geom_boxplot() + bird_ylim
@@ -170,13 +176,6 @@ for (i in 1:nrow(gs_plot_combos)) {
 }
 
 gs_richness
-```
-
-```{r}
-library(ggplot2)
-plant_ylim = ylim(0, 60)
-insect_ylim = ylim(0, 10)
-bird_ylim = ylim(0, 20)
 ```
 
 ```{r}
