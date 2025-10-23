@@ -1,0 +1,342 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+library(tidyverse)
+library(dplyr)
+```
+
+# Load sites in greenspace
+```{r}
+dir = 'input/qgis'
+
+# Sites of Biological Interest - downloaded from https://gmlrc.org/wildlife_sites/ (22nd October 2025)
+gm_sbi = read_csv(paste(dir, 'greater_manchester_sites_of_biological_interest.csv', sep = '/'))
+
+# OS Greenspace sites - downloaded from https://osdatahub.os.uk/data/downloads/open/OpenGreenspace (22nd October 2025)
+gm_gs = read_csv(paste(dir, 'os_greenspace_mapping.csv', sep = '/'))
+```
+## How many plots do we have in each SBI?
+```{r}
+gm_sbi %>% dplyr::group_by(site_name) %>% summarise(survey_plots = n()) %>% arrange(desc(survey_plots))
+```
+## How many plots do we have in each greenspace site?
+```{r}
+gm_gs %>% group_by(id, distName1, `function`) %>% summarise(survey_plots = n()) %>% arrange(desc(survey_plots))
+```
+
+# Calculate every combination of 3 survey plots per site
+```{r}
+library(purrr)
+PLOTS_REQUIRED = 3
+```
+
+
+```{r}
+# df has columns: name, plot_id
+gs_plot_combos = gm_gs %>%
+  distinct(id, distName1, `function`, title) %>%               # de-dup within name
+  add_count(id, distName1, `function`, name = "n_plots") %>%     # count plots per name
+  filter(n_plots >= PLOTS_REQUIRED) %>%                  # keep only names with >= 3
+  arrange(id, title) %>%                # sort so combinations are canonical
+  group_by(id, distName1, `function`) %>%
+  summarise(
+    combos = list({
+      ids = title
+      as_tibble(t(combn(ids, PLOTS_REQUIRED)))
+    }),
+    .groups = "drop"
+  ) %>%
+  unnest(combos) %>%
+  rename(plot1 = V1, plot2 = V2, plot3 = V3)
+
+gs_plot_combos
+```
+
+```{r}
+sbi_plot_combos = gm_sbi %>%
+  distinct(site_name, title) %>%               # de-dup within name
+  add_count(site_name, name = "n_plots") %>%     # count plots per name
+  filter(n_plots >= PLOTS_REQUIRED) %>%                  # keep only names with >= 3
+  arrange(site_name, title) %>%                # sort so combinations are canonical
+  group_by(site_name) %>%
+  summarise(
+    combos = list({
+      ids = title
+      as_tibble(t(combn(ids, PLOTS_REQUIRED)))
+    }),
+    .groups = "drop"
+  ) %>%
+  unnest(combos) %>%
+  rename(plot1 = V1, plot2 = V2, plot3 = V3)
+
+sbi_plot_combos
+```
+
+# Load survey data
+```{r}
+survey_data = read_csv('input/survey/form-1__survey.after_2_land_use.csv')
+survey_data
+```
+## Find richness across 3 plots
+
+```{r}
+bird_cols = c('Birds_Songbirds', 'Birds_Warblers', 'Birds_Finches', 'Birds_Tits', 'Birds_Crows', 'Birds_Pigeons', 'Birds_Aerial', 'Birds_Other')
+insect_cols = c('Insects_Butterflies', 'Insects_Bumblebees', 'Insects_Hoverflies', 'Insects_Other')
+plant_cols = c('Plants_Trees', 'Plants_Midstory', 'Plants_Ferns', 'Plants_Orchids', 'Plants_Fungi', 'Plants_Micro', 'Plants_Grasses', 'Plants_Other')
+```
+
+```{r}
+species_in = function(plot1, plot2, plot3, species_col_list) {
+  survey_data %>% 
+    filter(title %in% c(plot1, plot2, plot3)) %>%
+    select(all_of(species_col_list), title) %>% 
+    unite(concat, -c("title"), sep = ",", remove=T) %>% 
+    separate_rows(concat, convert = TRUE, sep = ",") %>% 
+    filter(!is.na(concat)) %>% 
+    rename(species=concat) %>%
+    distinct(species)
+}
+
+species_in('485 5', '485 1', '618 7', bird_cols)
+```
+
+```{r}
+calculate_richness = function(plot1, plot2, plot3, include_birds = T, include_insects = T, include_plants = T) {
+  result = as.data.frame(matrix(nrow = 1, ncol = 0)) 
+  
+  if (include_birds) {
+    result$bird_richness = nrow(species_in(plot1, plot2, plot3, bird_cols))
+  }
+  if (include_insects) {
+    result$insect_richness = nrow(species_in(plot1, plot2, plot3, insect_cols))
+  }
+  if (include_plants) {
+    result$plant_richness = nrow(species_in(plot1, plot2, plot3, plant_cols))
+  }
+  result
+}
+
+calculate_richness('485 5', '485 1', '618 7')
+```
+### Site of biological interest richness
+```{r}
+sbi_richness = data.frame()
+
+for (i in 1:nrow(sbi_plot_combos)) {
+  row_data = cbind(
+    data.frame(
+      site_name = sbi_plot_combos$site_name[i]
+    ),
+    calculate_richness(sbi_plot_combos$plot1[i], sbi_plot_combos$plot2[i], sbi_plot_combos$plot3[i])
+  )
+  
+  sbi_richness = rbind(sbi_richness, row_data)
+}
+
+sbi_richness
+```
+
+```{r}
+ggplot(sbi_richness, aes(x = site_name, y = bird_richness)) + geom_boxplot() + bird_ylim
+```
+
+```{r}
+ggplot(sbi_richness, aes(x = site_name, y = insect_richness)) + geom_boxplot() + insect_ylim
+```
+
+```{r}
+ggplot(sbi_richness, aes(x = site_name, y = plant_richness)) + geom_boxplot() + plant_ylim
+```
+
+### Greenspace richness
+```{r}
+gs_richness = data.frame()
+
+for (i in 1:nrow(gs_plot_combos)) {
+  row_data = cbind(
+    data.frame(
+      site_id = gs_plot_combos$id[i],
+      site_name = gs_plot_combos$distName1[i],
+      site_type = gs_plot_combos$`function`[i]
+    ),
+    calculate_richness(gs_plot_combos$plot1[i], gs_plot_combos$plot2[i], gs_plot_combos$plot3[i])
+  )
+  
+  gs_richness = rbind(gs_richness, row_data)
+}
+
+gs_richness
+```
+
+```{r}
+library(ggplot2)
+plant_ylim = ylim(0, 60)
+insect_ylim = ylim(0, 10)
+bird_ylim = ylim(0, 20)
+```
+
+```{r}
+all_sites = sbi_richness
+all_sites$site_id = all_sites$site_name
+all_sites$site_type = 'SBI'
+all_sites = rbind(all_sites, gs_richness)
+```
+
+```{r}
+ggplot(all_sites, aes(x = site_type, y = bird_richness)) + geom_boxplot() + bird_ylim
+```
+
+```{r}
+ggplot(all_sites, aes(x = site_type, y = insect_richness)) + geom_boxplot() + insect_ylim
+```
+
+```{r}
+ggplot(all_sites, aes(x = site_type, y = plant_richness)) + geom_boxplot() + plant_ylim
+```
+
+
+# Look at distributed plots - 3 plots not in the same block
+```{r}
+library(tibble)
+```
+
+## Add in habitat types
+```{r}
+plant_insect_habitat_types = read_csv('input/habitat_clusters/plant_insect_habitats.csv')
+plant_insect_habitat_types$plant_insect_habitat_type = plant_insect_habitat_types$cluster_description
+
+bird_habitat_types = read_csv('input/habitat_clusters/bird_habitats.csv')
+bird_habitat_types$bird_habitat_type = bird_habitat_types$cluster_description
+
+habitat_types = left_join(plant_insect_habitat_types[,c('title', 'plant_insect_habitat_type')], bird_habitat_types[,c('title', 'bird_habitat_type')], by = 'title')
+
+habitat_types = habitat_types %>% mutate(block = sub(" .*", "", title))
+habitat_types
+```
+
+## Sample habitat types for 3 distinct plots in different blocks
+```{r}
+SEED = 636565
+NUMBER_OF_DISTINCT_ROWS = 10000
+
+sample_triples = function(plots_and_blocks, m = NUMBER_OF_DISTINCT_ROWS) {
+  plot_index = split(plots_and_blocks$title, plots_and_blocks$block)
+  block_index = names(plot_index)
+  block_count = length(plot_index)
+
+  set.seed(SEED)
+  # sample 3 distinct names, then 1 plot from each
+  result = vector("list", m)
+  for (i in seq_len(m)) {
+    blocks = sample(block_index, 3, replace = FALSE)
+    result[[i]] = data.frame(
+      plot1 = sample(plot_index[[blocks[1]]], 1),
+      plot2 = sample(plot_index[[blocks[2]]], 1),
+      plot3 = sample(plot_index[[blocks[3]]], 1),
+      stringsAsFactors = FALSE
+    )
+  }
+  bind_rows(result)
+}
+
+sample_triples(habitat_types, 100)
+```
+
+## Richness
+```{r}
+sampled_richness_df = function(plant_and_insect_plots, bird_plots) {
+  plant_and_insect_sample = sample_triples(plant_and_insect_plots)
+  
+  plant_and_insect_richness = data.frame()
+  for (i in 1:nrow(plant_and_insect_sample)) {
+    plant_and_insect_richness = rbind(
+      plant_and_insect_richness,
+      calculate_richness(
+        plant_and_insect_sample$plot1[i], 
+        plant_and_insect_sample$plot2[i], 
+        plant_and_insect_sample$plot3[i],
+        include_birds = F
+      )
+    )
+  }
+  
+  bird_sample = sample_triples(bird_plots)
+  
+  bird_richness = data.frame()
+  for (i in 1:nrow(bird_sample)) {
+    bird_richness = rbind(
+      bird_richness,
+      calculate_richness(
+        plant_and_insect_sample$plot1[i], 
+        plant_and_insect_sample$plot2[i], 
+        plant_and_insect_sample$plot3[i],
+        include_plants = F, include_insects = F
+      )
+    )
+  }
+  
+  cbind(plant_and_insect_richness, bird_richness)
+}
+```
+
+
+```{r}
+woodland_and_scrub_richness = sampled_richness_df(
+  habitat_types %>% filter(plant_insect_habitat_type == 'Woodland and Scrub'),
+  habitat_types %>% filter(bird_habitat_type == 'Woodland and Scrub')
+)
+woodland_and_scrub_richness$site_type = 'Woodland and Scrub'
+woodland_and_scrub_richness$plot_type = 'Distributed'
+```
+
+```{r}
+grassland_richness = sampled_richness_df(
+  habitat_types %>% filter(plant_insect_habitat_type == 'Amenity Grassland'),
+  habitat_types %>% filter(bird_habitat_type == 'Amenity Grassland')
+)
+grassland_richness$site_type = 'Amenity Grassland'
+grassland_richness$plot_type = 'Distributed'
+```
+
+```{r}
+built_richness = sampled_richness_df(
+  habitat_types %>% filter(plant_insect_habitat_type == 'Built Surface'),
+  habitat_types %>% filter(bird_habitat_type == 'Built Surface')
+)
+built_richness$site_type = 'Built Surface'
+built_richness$plot_type = 'Distributed'
+```
+
+
+```{r}
+green_richness = sampled_richness_df(
+  habitat_types %>% filter(plant_insect_habitat_type %in% c('Woodland and Scrub', 'Amenity Grassland')),
+  habitat_types %>% filter(bird_habitat_type %in% c('Woodland and Scrub', 'Amenity Grassland'))
+)
+green_richness$site_type = 'Not Build Surface'
+green_richness$plot_type = 'Distributed'
+```
+
+```{r}
+all_sites$plot_type = 'Single Site'
+distributed_sites = bind_rows(woodland_and_scrub_richness, grassland_richness, built_richness, green_richness, all_sites)
+```
+
+```{r}
+ggplot(distributed_sites, aes(x = site_type, y = bird_richness, color = plot_type)) + geom_boxplot() + bird_ylim + 
+  scale_x_discrete(guide = guide_axis(n.dodge = 2)) + theme(legend.position = 'bottom')
+```
+
+```{r}
+ggplot(distributed_sites, aes(x = site_type, y = insect_richness, color = plot_type)) + geom_boxplot() + insect_ylim + 
+  scale_x_discrete(guide = guide_axis(n.dodge = 2)) + theme(legend.position = 'bottom')
+```
+
+```{r}
+ggplot(distributed_sites, aes(x = site_type, y = plant_richness, color = plot_type)) + geom_boxplot() + plant_ylim + 
+  scale_x_discrete(guide = guide_axis(n.dodge = 2)) + theme(legend.position = 'bottom')
+```
