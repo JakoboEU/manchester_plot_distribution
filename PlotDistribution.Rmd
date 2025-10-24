@@ -447,7 +447,7 @@ ggsave('output/insects.jpg')
 ```{r}
 kruskal.test(distributed_sites_for_kruskal$plant_richness ~ distributed_sites_for_kruskal$site_type)
 
-plant_richness_aov = aov(insect_richness ~ site_type, data = distributed_sites_for_kruskal)
+plant_richness_aov = aov(plant_richness ~ site_type, data = distributed_sites_for_kruskal)
 plant_richness_tukey = TukeyHSD(plant_richness_aov)
 
 plant_richness_groups = multcomp::cld(multcomp::glht(plant_richness_aov, linfct=multcomp::mcp(site_type="Tukey")))
