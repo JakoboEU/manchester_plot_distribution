@@ -7,6 +7,9 @@ output: html_notebook
 ```{r}
 library(tidyverse)
 library(dplyr)
+library(purrr)
+library(tibble)
+library(ggplot2)
 ```
 
 # Load sites in greenspace
@@ -30,7 +33,6 @@ gm_gs %>% group_by(id, distName1, `function`) %>% summarise(survey_plots = n()) 
 
 # Calculate every combination of 3 survey plots per site
 ```{r}
-library(purrr)
 PLOTS_REQUIRED = 3
 ```
 
@@ -140,7 +142,6 @@ for (i in 1:nrow(sbi_plot_combos)) {
 sbi_richness
 ```
 ```{r}
-library(ggplot2)
 plant_ylim = ylim(0, 60)
 insect_ylim = ylim(0, 10)
 bird_ylim = ylim(0, 20)
@@ -199,9 +200,6 @@ ggplot(all_sites, aes(x = site_type, y = plant_richness)) + geom_boxplot() + pla
 
 
 # Look at distributed plots - 3 plots not in the same block
-```{r}
-library(tibble)
-```
 
 ## Add in habitat types
 ```{r}
@@ -288,19 +286,25 @@ habitat_types_no_single_sites
 ```
 
 ```{r}
+PLOT_TYPE_DIST_NO_SINGLE_SITES = 'Distributed,\nno single sites'
+PLOT_TYPE_DIST = 'Distributed'
+PLOT_TYPE_SINGLE_SITE = 'Single Site'
+```
+
+```{r}
 woodland_and_scrub_richness = sampled_richness_df(
   habitat_types %>% filter(plant_insect_habitat_type == 'Woodland and Scrub'),
   habitat_types %>% filter(bird_habitat_type == 'Woodland and Scrub')
 )
 woodland_and_scrub_richness$site_type = 'Woodland and Scrub'
-woodland_and_scrub_richness$plot_type = 'Distributed'
+woodland_and_scrub_richness$plot_type = PLOT_TYPE_DIST
 
 woodland_and_scrub_no_ss_richness = sampled_richness_df(
   habitat_types_no_single_sites %>% filter(plant_insect_habitat_type == 'Woodland and Scrub'),
   habitat_types_no_single_sites %>% filter(bird_habitat_type == 'Woodland and Scrub')
 )
 woodland_and_scrub_no_ss_richness$site_type = 'Woodland and Scrub'
-woodland_and_scrub_no_ss_richness$plot_type = 'Distributed, no sites'
+woodland_and_scrub_no_ss_richness$plot_type = PLOT_TYPE_DIST_NO_SINGLE_SITES
 ```
 
 ```{r}
@@ -309,14 +313,14 @@ grassland_richness = sampled_richness_df(
   habitat_types %>% filter(bird_habitat_type == 'Amenity Grassland')
 )
 grassland_richness$site_type = 'Amenity Grassland'
-grassland_richness$plot_type = 'Distributed'
+grassland_richness$plot_type = PLOT_TYPE_DIST
 
 grassland_no_ss_richness = sampled_richness_df(
   habitat_types_no_single_sites %>% filter(plant_insect_habitat_type == 'Amenity Grassland'),
   habitat_types_no_single_sites %>% filter(bird_habitat_type == 'Amenity Grassland')
 )
 grassland_no_ss_richness$site_type = 'Amenity Grassland'
-grassland_no_ss_richness$plot_type = 'Distributed, no sites'
+grassland_no_ss_richness$plot_type = PLOT_TYPE_DIST_NO_SINGLE_SITES
 ```
 
 ```{r}
@@ -325,14 +329,14 @@ built_richness = sampled_richness_df(
   habitat_types %>% filter(bird_habitat_type == 'Built Surface')
 )
 built_richness$site_type = 'Built Surface'
-built_richness$plot_type = 'Distributed'
+built_richness$plot_type = PLOT_TYPE_DIST
 
 built_no_ss_richness = sampled_richness_df(
   habitat_types_no_single_sites %>% filter(plant_insect_habitat_type == 'Built Surface'),
   habitat_types_no_single_sites %>% filter(bird_habitat_type == 'Built Surface')
 )
 built_no_ss_richness$site_type = 'Built Surface'
-built_no_ss_richness$plot_type = 'Distributed, no sites'
+built_no_ss_richness$plot_type = PLOT_TYPE_DIST_NO_SINGLE_SITES
 ```
 
 
@@ -341,51 +345,121 @@ green_richness = sampled_richness_df(
   habitat_types %>% filter(plant_insect_habitat_type %in% c('Woodland and Scrub', 'Amenity Grassland')),
   habitat_types %>% filter(bird_habitat_type %in% c('Woodland and Scrub', 'Amenity Grassland'))
 )
-green_richness$site_type = 'Not Build Surface'
-green_richness$plot_type = 'Distributed'
+green_richness$site_type = 'Not Built Surface'
+green_richness$plot_type = PLOT_TYPE_DIST
 
 green_no_ss_richness = sampled_richness_df(
   habitat_types_no_single_sites %>% filter(plant_insect_habitat_type %in% c('Woodland and Scrub', 'Amenity Grassland')),
   habitat_types_no_single_sites %>% filter(bird_habitat_type %in% c('Woodland and Scrub', 'Amenity Grassland'))
 )
-green_no_ss_richness$site_type = 'Not Build Surface'
-green_no_ss_richness$plot_type = 'Distributed, no sites'
+green_no_ss_richness$site_type = 'Not Built Surface'
+green_no_ss_richness$plot_type = PLOT_TYPE_DIST_NO_SINGLE_SITES
 ```
 
 ```{r}
-all_sites$plot_type = 'Single Site'
+all_sites$plot_type = PLOT_TYPE_SINGLE_SITE
 distributed_sites = bind_rows(
   woodland_and_scrub_richness, grassland_richness, built_richness, green_richness,
   woodland_and_scrub_no_ss_richness, grassland_no_ss_richness, built_no_ss_richness, green_no_ss_richness,
   all_sites)
+
+distributed_sites$site_type <- factor(distributed_sites$site_type, levels = c(
+  "Woodland and Scrub", "Amenity Grassland", "Not Built Surface", "Built Surface",
+  "SBI", "Public Park Or Garden", "Cemetery", "Golf Course", "Playing Field", "Other Sports Facility"
+  ))
+
+distributed_sites_for_kruskal = distributed_sites[distributed_sites$plot_type != PLOT_TYPE_DIST,]
 ```
 
 ```{r}
-ggplot(distributed_sites, aes(x = site_type, y = bird_richness, color = plot_type)) + geom_boxplot() + bird_ylim + 
-  scale_x_discrete(guide = guide_axis(n.dodge = 3)) + theme(legend.position = 'bottom')
+# Palette
+# https://jrnold.github.io/ggthemes/reference/colorblind.html
+COLOUR_1 = "#000000"
+COLOUR_2 = "#E69F00"
+COLOUR_3 = "#56B4E9"
+COLOUR_4 = "#009E73"
+COLOUR_5 = "#F0E442"
+COLOUR_6 = "#0072B2"
+COLOUR_7 = "#D55E00"
+COLOUR_8 = "#CC79A7"
+COLOUR_9 = "#4D4D4D"
 ```
 
 ```{r}
-kruskal.test(distributed_sites$bird_richness ~ distributed_sites$site_type)
-pairwise.wilcox.test(distributed_sites$bird_richness, distributed_sites$site_type)
+scale_color_manual = scale_color_manual(values = setNames(
+  c(COLOUR_2, COLOUR_6, COLOUR_8),
+  c(PLOT_TYPE_DIST_NO_SINGLE_SITES, PLOT_TYPE_DIST, PLOT_TYPE_SINGLE_SITE))
+)
+
+theme_common = function(gg, taxa) { gg + 
+    theme_bw() + 
+    scale_x_discrete(guide = guide_axis(n.dodge = 3)) + 
+    theme(legend.position = 'bottom') + 
+    scale_color_manual +
+    labs(color = 'Plot selection') +
+    xlab('Site Type') + ylab(paste(taxa, 'Richness'))
+}
+```
+
+
+```{r}
+kruskal.test(distributed_sites_for_kruskal$bird_richness ~ distributed_sites_for_kruskal$site_type)
+
+bird_richness_aov = aov(bird_richness ~ site_type, data = distributed_sites_for_kruskal)
+bird_richness_tukey = TukeyHSD(bird_richness_aov)
+
+bird_richness_groups = multcomp::cld(multcomp::glht(bird_richness_aov, linfct=multcomp::mcp(site_type="Tukey")))
+
+bird_richness_groups_df = broom::tidy(bird_richness_groups)
+bird_richness_groups_df
 ```
 
 ```{r}
-ggplot(distributed_sites, aes(x = site_type, y = insect_richness, color = plot_type)) + geom_boxplot() + insect_ylim + 
-  scale_x_discrete(guide = guide_axis(n.dodge = 3)) + theme(legend.position = 'bottom')
+(ggplot(distributed_sites, aes(x = site_type, y = bird_richness, color = plot_type)) + 
+   geom_boxplot() + 
+   geom_text(data = bird_richness_groups_df, mapping = aes(label = letters, y = 1), color = 'black') + bird_ylim) %>% 
+  theme_common('Bird')
+ggsave('output/birds.jpg')
 ```
 
 ```{r}
-kruskal.test(distributed_sites$insect_richness ~ distributed_sites$site_type)
-pairwise.wilcox.test(distributed_sites$insect_richness, distributed_sites$site_type)
+kruskal.test(distributed_sites_for_kruskal$insect_richness ~ distributed_sites_for_kruskal$site_type)
+
+insect_richness_aov = aov(insect_richness ~ site_type, data = distributed_sites_for_kruskal)
+insect_richness_tukey = TukeyHSD(insect_richness_aov)
+
+insect_richness_groups = multcomp::cld(multcomp::glht(insect_richness_aov, linfct=multcomp::mcp(site_type="Tukey")))
+
+insect_richness_groups_df = broom::tidy(insect_richness_groups)
+insect_richness_groups_df
 ```
 
 ```{r}
-ggplot(distributed_sites, aes(x = site_type, y = plant_richness, color = plot_type)) + geom_boxplot() + plant_ylim + 
-  scale_x_discrete(guide = guide_axis(n.dodge = 3)) + theme(legend.position = 'bottom')
+(ggplot(distributed_sites, aes(x = site_type, y = insect_richness, color = plot_type)) + 
+   geom_boxplot() + 
+   geom_text(data = insect_richness_groups_df, mapping = aes(label = letters, y = 0.5), color = 'black') + insect_ylim) %>% 
+  theme_common('Insect')
+ggsave('output/insects.jpg')
+```
+
+
+
+```{r}
+kruskal.test(distributed_sites_for_kruskal$plant_richness ~ distributed_sites_for_kruskal$site_type)
+
+plant_richness_aov = aov(insect_richness ~ site_type, data = distributed_sites_for_kruskal)
+plant_richness_tukey = TukeyHSD(plant_richness_aov)
+
+plant_richness_groups = multcomp::cld(multcomp::glht(plant_richness_aov, linfct=multcomp::mcp(site_type="Tukey")))
+
+plant_richness_groups_df = broom::tidy(plant_richness_groups)
+plant_richness_groups_df
 ```
 
 ```{r}
-kruskal.test(distributed_sites$plant_richness ~ distributed_sites$site_type)
-pairwise.wilcox.test(distributed_sites$plant_richness, distributed_sites$site_type)
+(ggplot(distributed_sites, aes(x = site_type, y = plant_richness, color = plot_type)) + 
+   geom_boxplot() + 
+   geom_text(data = plant_richness_groups_df, mapping = aes(label = letters, y = 0.5), color = 'black') + plant_ylim) %>% 
+  theme_common('Plant')
+ggsave('output/plants.jpg')
 ```
